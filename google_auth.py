@@ -21,7 +21,7 @@ AUTH_TOKEN_KEY = 'auth_token'
 AUTH_STATE_KEY = 'auth_state'
 USER_INFO_KEY = 'user_info'
 
-app = flask.Flask(__name__)
+app = flask.Flask(__name__) 
 app.secret_key = os.environ.get("FN_FLASK_SECRET_KEY", default=False)
 
 @app.route('/')
@@ -46,20 +46,35 @@ def no_cache(view):
 @app.route('/google/login')
 @no_cache
 def login():
-    session = OAuth2Session(CLIENT_ID, CLIENT_SECRET, scope=AUTHORIZATION_SCOPE, redirect_uri=AUTH_REDIRECT_URI)
+    session = OAuth2Session(CLIENT_ID, CLIENT_SECRET,
+                            scope=AUTHORIZATION_SCOPE,
+                            redirect_uri=AUTH_REDIRECT_URI)
+  
     uri, state = session.authorization_url(AUTHORIZATION_URL)
+
     flask.session[AUTH_STATE_KEY] = state
     flask.session.permanent = True
-    return flask.redirect(uri, code=302)
 
+    return flask.redirect(uri, code=302)
 
 @app.route('/google/auth')
 @no_cache
 def google_auth_redirect():
-    state = flask.request.args.get('state', default=None, type=None)
+    req_state = flask.request.args.get('state', default=None, type=None)
+
+    if req_state != flask.session[AUTH_STATE_KEY]:
+        response = flask.make_response('Invalid state parameter', 401)
+        return response
     
-    session = OAuth2Session(CLIENT_ID, CLIENT_SECRET, scope=AUTHORIZATION_SCOPE, state=state, redirect_uri=AUTH_REDIRECT_URI)
-    oauth2_tokens = session.fetch_access_token(ACCESS_TOKEN_URI, authorization_response=flask.request.url)
+    session = OAuth2Session(CLIENT_ID, CLIENT_SECRET,
+                            scope=AUTHORIZATION_SCOPE,
+                            state=flask.session[AUTH_STATE_KEY],
+                            redirect_uri=AUTH_REDIRECT_URI)
+
+    oauth2_tokens = session.fetch_access_token(
+                        ACCESS_TOKEN_URI,            
+                        authorization_response=flask.request.url)
+
     flask.session[AUTH_TOKEN_KEY] = oauth2_tokens
 
     return flask.redirect(BASE_URI, code=302)
@@ -81,14 +96,19 @@ def build_credentials():
         raise Exception('User must be logged in')
 
     oauth2_tokens = flask.session[AUTH_TOKEN_KEY]
+    
     return google.oauth2.credentials.Credentials(
-        oauth2_tokens['access_token'],
-        refresh_token=oauth2_tokens['refresh_token'],
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
-        token_uri=ACCESS_TOKEN_URI)
+                oauth2_tokens['access_token'],
+                refresh_token=oauth2_tokens['refresh_token'],
+                client_id=CLIENT_ID,
+                client_secret=CLIENT_SECRET,
+                token_uri=ACCESS_TOKEN_URI)
 
 def get_user_info():
     credentials = build_credentials()
-    oauth2_client = googleapiclient.discovery.build('oauth2', 'v2', credentials=credentials)
+
+    oauth2_client = googleapiclient.discovery.build(
+                        'oauth2', 'v2',
+                        credentials=credentials)
+
     return oauth2_client.userinfo().get().execute()
